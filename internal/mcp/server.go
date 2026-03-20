@@ -45,6 +45,12 @@ func (s *Server) Serve(ctx context.Context) error {
 	return s.serve(ctx, os.Stdin, os.Stdout)
 }
 
+// ServeIO starts the MCP server reading from r and writing to w.
+// It is intended for testing; production code should use [Server.Serve].
+func (s *Server) ServeIO(ctx context.Context, r io.Reader, w io.Writer) error {
+	return s.serve(ctx, r, w)
+}
+
 // serve is the internal implementation of Serve; it accepts explicit
 // reader/writer arguments to enable testing without real stdio.
 func (s *Server) serve(ctx context.Context, in io.Reader, out io.Writer) error {

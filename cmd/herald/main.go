@@ -2,17 +2,14 @@
 //
 // Configuration is read from environment variables:
 //
-//	OPENRAG_BASE_URL  Base URL of the OpenRAG API (required)
-//	OPENRAG_API_KEY   API key for OpenRAG (required)
-//	LISTEN_PORT       Port for optional metrics endpoint (default: 8001)
-//	LOG_LEVEL         Log level: debug, info, warn, error (default: info)
+//	OPENRAG_URL    Base URL of the OpenRAG API (required), e.g. http://192.168.0.44:3000
+//	OPENRAG_API_KEY  API key for OpenRAG (required)
 package main
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -25,105 +22,70 @@ import (
 
 // config holds runtime configuration loaded from environment variables.
 type config struct {
-	openragBaseURL string
-	openragAPIKey  string
-	listenPort     string
-	logLevel       string
+	openragURL    string
+	openragAPIKey string
 }
 
 // loadConfig reads and validates configuration from environment variables.
 // It returns an error if any required variable is missing.
 func loadConfig() (config, error) {
 	cfg := config{
-		openragBaseURL: os.Getenv("OPENRAG_BASE_URL"),
-		openragAPIKey:  os.Getenv("OPENRAG_API_KEY"),
-		listenPort:     os.Getenv("LISTEN_PORT"),
-		logLevel:       os.Getenv("LOG_LEVEL"),
+		openragURL:    os.Getenv("OPENRAG_URL"),
+		openragAPIKey: os.Getenv("OPENRAG_API_KEY"),
 	}
 
-	if cfg.openragBaseURL == "" {
-		return config{}, fmt.Errorf("OPENRAG_BASE_URL is required")
+	if cfg.openragURL == "" {
+		return config{}, fmt.Errorf("OPENRAG_URL is required")
 	}
 	// Strip trailing slash for consistency.
-	cfg.openragBaseURL = strings.TrimRight(cfg.openragBaseURL, "/")
+	cfg.openragURL = strings.TrimRight(cfg.openragURL, "/")
 
-	if cfg.listenPort == "" {
-		cfg.listenPort = "8001"
-	}
-	if cfg.logLevel == "" {
-		cfg.logLevel = "info"
+	if cfg.openragAPIKey == "" {
+		return config{}, fmt.Errorf("OPENRAG_API_KEY is required")
 	}
 
 	return cfg, nil
 }
 
-// newLogger creates a structured slog logger at the specified level.
-func newLogger(level string) *slog.Logger {
-	var lvl slog.Level
-	switch strings.ToLower(level) {
-	case "debug":
-		lvl = slog.LevelDebug
-	case "warn", "warning":
-		lvl = slog.LevelWarn
-	case "error":
-		lvl = slog.LevelError
-	default:
-		lvl = slog.LevelInfo
-	}
-	return slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: lvl}))
-}
-
-// validateConnectivity performs a health-check GET against the OpenRAG base URL.
-// It is a best-effort check; a non-2xx status or network error is logged as a
-// warning but does not prevent startup (the service may not expose a / route).
-func validateConnectivity(ctx context.Context, log *slog.Logger, baseURL string) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/health", nil)
-	if err != nil {
-		log.Warn("connectivity check: could not build request", "error", err)
-		return
+// formatResults formats a slice of openrag.Result into a human-readable string.
+// The format is:
+//
+//	Found N results:
+//
+//	1. filename.md (relevance: 0.95)
+//	   Text excerpt here...
+//
+//	2. another.md (relevance: 0.87)
+//	   ...
+func formatResults(results []openrag.Result) string {
+	if len(results) == 0 {
+		return "No results found."
 	}
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		log.Warn("connectivity check: OpenRAG unreachable — will continue anyway", "url", baseURL, "error", err)
-		return
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Found %d results:\n", len(results))
+	for i, r := range results {
+		fmt.Fprintf(&sb, "\n%d. %s (relevance: %.2f)\n   %s\n", i+1, r.Filename, r.Relevance, r.Text)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		log.Info("connectivity check: OpenRAG is reachable", "url", baseURL, "status", resp.StatusCode)
-	} else {
-		log.Warn("connectivity check: unexpected status", "url", baseURL, "status", resp.StatusCode)
-	}
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 func main() {
 	cfg, err := loadConfig()
 	if err != nil {
-		// Logger may not be initialised yet; write directly to stderr.
 		fmt.Fprintf(os.Stderr, "herald: configuration error: %v\n", err)
 		os.Exit(1)
 	}
 
-	log := newLogger(cfg.logLevel)
-	log.Info("herald starting",
-		"openrag_base_url", cfg.openragBaseURL,
-		"listen_port", cfg.listenPort,
-		"log_level", cfg.logLevel,
-	)
+	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	log.Info("herald starting", "openrag_url", cfg.openragURL)
 
 	// Root context — cancelled on SIGTERM/SIGINT.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	// Best-effort connectivity validation.
-	validateConnectivity(ctx, log, cfg.openragBaseURL)
-
 	// Initialise OpenRAG client.
-	ragClient := openrag.NewClient(cfg.openragBaseURL, cfg.openragAPIKey)
+	ragClient := openrag.NewClient(cfg.openragURL, cfg.openragAPIKey)
 
 	// Build the SearchHandler that bridges the MCP layer to the OpenRAG client.
 	searchHandler := func(ctx context.Context, query string, limit int) (string, error) {
@@ -133,16 +95,7 @@ func main() {
 			log.Error("search failed", "query", query, "error", err)
 			return "", fmt.Errorf("search failed: %w", err)
 		}
-
-		if len(results) == 0 {
-			return "No results found.", nil
-		}
-
-		var sb strings.Builder
-		for i, r := range results {
-			fmt.Fprintf(&sb, "[%d] %s (relevance: %.3f)\n%s\n\n", i+1, r.Filename, r.Relevance, r.Text)
-		}
-		return strings.TrimRight(sb.String(), "\n"), nil
+		return formatResults(results), nil
 	}
 
 	// Initialise MCP server.
