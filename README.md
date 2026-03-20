@@ -1,6 +1,8 @@
 # Herald
 
-Herald is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that bridges AI coding agents to an [OpenRAG](https://github.com/jgavinray/openrag) deployment. It exposes your OpenRAG knowledge base as MCP tools so agents like OpenCode, Claude Code, or any MCP-aware client can search and retrieve context from your own infrastructure. Written in Go, licensed under GPL v2.
+Herald is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that bridges AI coding agents to an [OpenRAG](https://github.com/langflow-ai/openrag) deployment. It exposes your OpenRAG knowledge base as MCP tools so agents like OpenCode, Claude Code, or any MCP-aware client can search and retrieve context from your own infrastructure. Written in Go, licensed under GPL v2.
+
+Herald works with any OpenRAG-compatible deployment that exposes a `POST /search` endpoint with the expected request/response format.
 
 ---
 
@@ -36,6 +38,8 @@ Herald starts an MCP server on stdin/stdout, ready for any MCP client to connect
 
 ## Run with Docker
 
+> **Note:** Herald is a stdio MCP server — it communicates over stdin/stdout. Docker is useful when your MCP client launches Herald as a managed process via `command` (e.g. in OpenCode or Claude Desktop config). For most cases, running the binary directly is simpler.
+
 ```bash
 docker build -t herald .
 docker run --env-file .env herald
@@ -61,10 +65,12 @@ Add the following to `~/.config/opencode/opencode.json` for a global setup, or t
 
 ```json
 {
+  "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "openrag": {
       "type": "local",
-      "command": "/path/to/herald",
+      "command": ["/path/to/herald"],
+      "enabled": true,
       "environment": {
         "OPENRAG_URL": "http://your-openrag:3000",
         "OPENRAG_API_KEY": "your_key"
