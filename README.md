@@ -6,7 +6,7 @@ Herald is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io) serv
 
 ## Prerequisites
 
-- **Go 1.21+** — for building from source
+- **Go 1.23+** — for building from source
 - **Docker** *(optional)* — for containerised deployment
 - A running **OpenRAG** instance (URL + API key)
 
