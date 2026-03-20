@@ -1,0 +1,7 @@
+vendor/
+*.test
+*.out
+.env
+.env.*
+.git
+dist/
