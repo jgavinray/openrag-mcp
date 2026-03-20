@@ -1,7 +1,11 @@
-// Package mcp implements an MCP (Model Context Protocol) server over stdio.
+// Package mcp implements an MCP (Model Context Protocol) server.
 //
-// The server speaks JSON-RPC 2.0 over stdin/stdout and exposes a single
-// "search" tool that delegates to a caller-supplied [SearchHandler].
+// The server speaks JSON-RPC 2.0 and exposes a single "search" tool that
+// delegates to a caller-supplied [SearchHandler]. Two transports are
+// supported:
+//
+//   - stdio: reads from stdin and writes to stdout (default, for local use)
+//   - HTTP/SSE: listens on a TCP address, suitable for network deployment
 package mcp
 
 import (
@@ -10,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -51,9 +56,9 @@ func (s *Server) ServeIO(ctx context.Context, r io.Reader, w io.Writer) error {
 	return s.serve(ctx, r, w)
 }
 
-// serve is the internal implementation of Serve; it accepts explicit
-// reader/writer arguments to enable testing without real stdio.
-func (s *Server) serve(ctx context.Context, in io.Reader, out io.Writer) error {
+// buildMCPServer creates and configures the underlying MCPServer with all
+// tools registered. It is shared by both transport implementations.
+func (s *Server) buildMCPServer() *mcpserver.MCPServer {
 	mcpSrv := mcpserver.NewMCPServer(
 		s.name,
 		s.version,
@@ -123,6 +128,41 @@ func (s *Server) serve(ctx context.Context, in io.Reader, out io.Writer) error {
 		}, nil
 	})
 
+	return mcpSrv
+}
+
+// serve is the internal implementation of Serve; it accepts explicit
+// reader/writer arguments to enable testing without real stdio.
+func (s *Server) serve(ctx context.Context, in io.Reader, out io.Writer) error {
+	mcpSrv := s.buildMCPServer()
 	stdio := mcpserver.NewStdioServer(mcpSrv)
 	return stdio.Listen(ctx, in, out)
+}
+
+// ServeSSE starts an HTTP/SSE MCP server on the given address (e.g.
+// "0.0.0.0:8080"). The baseURL must be the publicly reachable URL of the
+// server so that SSE clients can construct the message endpoint URL
+// (e.g. "http://192.168.1.10:8080"). It blocks until ctx is cancelled or an
+// unrecoverable error occurs.
+func (s *Server) ServeSSE(ctx context.Context, addr, baseURL string) error {
+	mcpSrv := s.buildMCPServer()
+	sseSrv := mcpserver.NewSSEServer(mcpSrv,
+		mcpserver.WithBaseURL(baseURL),
+		mcpserver.WithKeepAlive(true),
+	)
+
+	// Start the HTTP listener in a goroutine so we can watch ctx.
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- sseSrv.Start(addr)
+	}()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return sseSrv.Shutdown(shutdownCtx)
+	}
 }

@@ -327,6 +327,9 @@ func TestLoadConfig(t *testing.T) {
 	// Clear any existing env vars.
 	t.Setenv("OPENRAG_URL", "")
 	t.Setenv("OPENRAG_API_KEY", "")
+	t.Setenv("HERALD_TRANSPORT", "")
+	t.Setenv("HERALD_PORT", "")
+	t.Setenv("HERALD_ADDR", "")
 
 	_, err := loadConfig()
 	if err == nil {
@@ -349,5 +352,53 @@ func TestLoadConfig(t *testing.T) {
 	}
 	if cfg.openragAPIKey != "secret" {
 		t.Errorf("openragAPIKey = %q, want %q", cfg.openragAPIKey, "secret")
+	}
+	// Default transport should be stdio.
+	if cfg.transport != "stdio" {
+		t.Errorf("transport = %q, want %q", cfg.transport, "stdio")
+	}
+	// Default port should be 8080.
+	if cfg.port != "8080" {
+		t.Errorf("port = %q, want %q", cfg.port, "8080")
+	}
+	// Default addr should be 0.0.0.0.
+	if cfg.addr != "0.0.0.0" {
+		t.Errorf("addr = %q, want %q", cfg.addr, "0.0.0.0")
+	}
+}
+
+// TestLoadConfigHTTPTransport verifies HTTP transport env vars are loaded correctly.
+func TestLoadConfigHTTPTransport(t *testing.T) {
+	t.Setenv("OPENRAG_URL", "http://localhost:3000")
+	t.Setenv("OPENRAG_API_KEY", "secret")
+	t.Setenv("HERALD_TRANSPORT", "http")
+	t.Setenv("HERALD_PORT", "9090")
+	t.Setenv("HERALD_ADDR", "127.0.0.1")
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.transport != "http" {
+		t.Errorf("transport = %q, want %q", cfg.transport, "http")
+	}
+	if cfg.port != "9090" {
+		t.Errorf("port = %q, want %q", cfg.port, "9090")
+	}
+	if cfg.addr != "127.0.0.1" {
+		t.Errorf("addr = %q, want %q", cfg.addr, "127.0.0.1")
+	}
+}
+
+// TestLoadConfigInvalidTransport verifies that an unknown transport value
+// returns an error.
+func TestLoadConfigInvalidTransport(t *testing.T) {
+	t.Setenv("OPENRAG_URL", "http://localhost:3000")
+	t.Setenv("OPENRAG_API_KEY", "secret")
+	t.Setenv("HERALD_TRANSPORT", "grpc")
+
+	_, err := loadConfig()
+	if err == nil {
+		t.Fatal("expected error for invalid HERALD_TRANSPORT")
 	}
 }

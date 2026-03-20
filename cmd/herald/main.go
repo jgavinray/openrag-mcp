@@ -2,8 +2,11 @@
 //
 // Configuration is read from environment variables:
 //
-//	OPENRAG_URL    Base URL of the OpenRAG API (required), e.g. http://192.168.0.44:3000
+//	OPENRAG_URL      Base URL of the OpenRAG API (required), e.g. http://192.168.0.44:3000
 //	OPENRAG_API_KEY  API key for OpenRAG (required)
+//	HERALD_TRANSPORT Transport mode: "stdio" (default) or "http"
+//	HERALD_PORT      Port for HTTP mode (default "8080")
+//	HERALD_ADDR      Bind address for HTTP mode (default "0.0.0.0")
 package main
 
 import (
@@ -24,14 +27,33 @@ import (
 type config struct {
 	openragURL    string
 	openragAPIKey string
+	transport     string // "stdio" or "http"
+	port          string // port for HTTP mode
+	addr          string // bind address for HTTP mode
 }
 
 // loadConfig reads and validates configuration from environment variables.
 // It returns an error if any required variable is missing.
 func loadConfig() (config, error) {
+	transport := os.Getenv("HERALD_TRANSPORT")
+	if transport == "" {
+		transport = "stdio"
+	}
+	port := os.Getenv("HERALD_PORT")
+	if port == "" {
+		port = "8080"
+	}
+	bindAddr := os.Getenv("HERALD_ADDR")
+	if bindAddr == "" {
+		bindAddr = "0.0.0.0"
+	}
+
 	cfg := config{
 		openragURL:    os.Getenv("OPENRAG_URL"),
 		openragAPIKey: os.Getenv("OPENRAG_API_KEY"),
+		transport:     transport,
+		port:          port,
+		addr:          bindAddr,
 	}
 
 	if cfg.openragURL == "" {
@@ -42,6 +64,13 @@ func loadConfig() (config, error) {
 
 	if cfg.openragAPIKey == "" {
 		return config{}, fmt.Errorf("OPENRAG_API_KEY is required")
+	}
+
+	switch cfg.transport {
+	case "stdio", "http":
+		// valid
+	default:
+		return config{}, fmt.Errorf("HERALD_TRANSPORT must be \"stdio\" or \"http\", got %q", cfg.transport)
 	}
 
 	return cfg, nil
@@ -103,10 +132,20 @@ func main() {
 
 	// Start MCP server in a goroutine so we can handle shutdown signals.
 	serveErr := make(chan error, 1)
-	go func() {
+	switch cfg.transport {
+	case "http":
+		listenAddr := cfg.addr + ":" + cfg.port
+		baseURL := "http://" + listenAddr
+		log.Info("MCP server listening via HTTP/SSE", "addr", listenAddr)
+		go func() {
+			serveErr <- srv.ServeSSE(ctx, listenAddr, baseURL)
+		}()
+	default:
 		log.Info("MCP server listening on stdio")
-		serveErr <- srv.Serve(ctx)
-	}()
+		go func() {
+			serveErr <- srv.Serve(ctx)
+		}()
+	}
 
 	select {
 	case err := <-serveErr:

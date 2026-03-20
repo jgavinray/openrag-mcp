@@ -86,12 +86,57 @@ Once configured, OpenCode will launch Herald automatically and make its tools av
 
 ---
 
+## HTTP/SSE Transport (Network Deployment)
+
+By default Herald uses **stdio** transport, which is ideal for local MCP clients that launch Herald as a subprocess. For network deployment — such as a shared team server or a Docker container — Herald also supports **HTTP/SSE** transport per the [MCP spec](https://spec.modelcontextprotocol.io/specification/basic/transports/).
+
+### Starting Herald in HTTP mode
+
+```bash
+export OPENRAG_URL=http://your-openrag:3000
+export OPENRAG_API_KEY=your_key
+export HERALD_TRANSPORT=http   # enable HTTP/SSE
+export HERALD_PORT=8080        # optional, default 8080
+export HERALD_ADDR=0.0.0.0    # optional, default 0.0.0.0
+./herald
+```
+
+### Docker / docker-compose (HTTP mode)
+
+The provided `docker-compose.yml` already sets `HERALD_TRANSPORT=http` and exposes port `8080`. Just set your OpenRAG credentials in `.env`:
+
+```bash
+cp .env.example .env
+# edit .env with your OPENRAG_URL and OPENRAG_API_KEY
+docker compose up
+```
+
+### OpenCode config for HTTP mode
+
+HTTP/SSE is the recommended transport when Herald is deployed as a network service:
+
+```json
+{
+  "mcp": {
+    "openrag": {
+      "type": "remote",
+      "url": "http://your-herald-host:8080"
+    }
+  }
+}
+```
+
+---
+
 ## Environment Variables
 
-| Variable         | Required | Description                              |
-|------------------|----------|------------------------------------------|
-| `OPENRAG_URL`    | Yes      | Base URL of your OpenRAG deployment      |
-| `OPENRAG_API_KEY`| Yes      | API key for OpenRAG authentication       |
+| Variable           | Required | Default     | Description                                          |
+|--------------------|----------|-------------|------------------------------------------------------|
+| `OPENRAG_URL`      | Yes      | —           | Base URL of your OpenRAG deployment                  |
+| `OPENRAG_API_KEY`  | Yes      | —           | API key for OpenRAG authentication                   |
+| `HERALD_TRANSPORT` | No       | `stdio`     | Transport mode: `stdio` or `http`                    |
+| `HERALD_PORT`      | No       | `8080`      | Port for HTTP/SSE transport                          |
+| `HERALD_ADDR`      | No       | `0.0.0.0`  | Bind address for HTTP/SSE transport                  |
 
 ---
 
