@@ -6,6 +6,15 @@
 //
 //   - stdio: reads from stdin and writes to stdout (default, for local use)
 //   - HTTP/SSE: listens on a TCP address, suitable for network deployment
+//
+// # Quick start (stdio)
+//
+//	srv := mcp.NewServer("openrag-mcp", "0.1.0", func(ctx context.Context, query string, limit int) (string, error) {
+//	    return mySearch(ctx, query, limit)
+//	})
+//	if err := srv.Serve(ctx); err != nil && !errors.Is(err, context.Canceled) {
+//	    log.Fatal(err)
+//	}
 package mcp
 
 import (
@@ -19,6 +28,10 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
+
+// DefaultSearchLimit is the default maximum number of results returned by the
+// search tool when the caller omits the optional "limit" parameter.
+const DefaultSearchLimit = 5
 
 // SearchHandler is a function that performs a search over the OpenRAG knowledge
 // base. query is the search string and limit is the maximum number of results
@@ -74,7 +87,7 @@ func (s *Server) buildMCPServer() *mcpserver.MCPServer {
 		),
 		mcp.WithNumber("limit",
 			mcp.Description("Maximum number of results to return (default 5)"),
-			mcp.DefaultNumber(5),
+			mcp.DefaultNumber(DefaultSearchLimit),
 		),
 	)
 
@@ -92,8 +105,8 @@ func (s *Server) buildMCPServer() *mcpserver.MCPServer {
 			return nil, fmt.Errorf("parameter query must be a non-empty string")
 		}
 
-		// Extract limit (optional, default 5).
-		limit := 5
+		// Extract limit (optional, default DefaultSearchLimit).
+		limit := DefaultSearchLimit
 		if limitVal, exists := args["limit"]; exists && limitVal != nil {
 			switch v := limitVal.(type) {
 			case float64:

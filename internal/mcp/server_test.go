@@ -381,3 +381,60 @@ func TestUnknownMethodReturnsError(t *testing.T) {
 		t.Errorf("error code should be non-zero, got %d", resp.Error.Code)
 	}
 }
+
+// TestDefaultSearchLimit verifies that the exported DefaultSearchLimit
+// constant is applied when the optional "limit" parameter is omitted.
+func TestDefaultSearchLimit(t *testing.T) {
+	var gotLimit int
+	srv := NewServer("openrag-mcp", "0.1.0", func(_ context.Context, query string, limit int) (string, error) {
+		gotLimit = limit
+		return "ok", nil
+	})
+
+	initMsg := marshal(rpcRequest{
+		JSONRPC: "2.0",
+		ID:      id(1),
+		Method:  "initialize",
+		Params: map[string]any{
+			"protocolVersion": "2024-11-05",
+			"clientInfo":      map[string]any{"name": "test", "version": "0.0.1"},
+			"capabilities":    map[string]any{},
+		},
+	})
+	notif := marshal(rpcRequest{
+		JSONRPC: "2.0",
+		Method:  "notifications/initialized",
+	})
+	// Call without specifying limit — handler should receive DefaultSearchLimit.
+	callMsg := marshal(rpcRequest{
+		JSONRPC: "2.0",
+		ID:      id(2),
+		Method:  "tools/call",
+		Params: map[string]any{
+			"name": "search",
+			"arguments": map[string]any{
+				"query": "default limit test",
+			},
+		},
+	})
+
+	lines := runSession(t, srv, []string{initMsg, notif, callMsg})
+
+	resp := parseResponse(t, lines, 2)
+	if resp.Error != nil {
+		t.Fatalf("unexpected JSON-RPC error: %+v", resp.Error)
+	}
+
+	var result struct {
+		IsError bool `json:"isError"`
+	}
+	if err := json.Unmarshal(resp.Result, &result); err != nil {
+		t.Fatalf("unmarshal call result: %v", err)
+	}
+	if result.IsError {
+		t.Fatal("unexpected isError=true")
+	}
+	if gotLimit != DefaultSearchLimit {
+		t.Errorf("handler received limit=%d, want DefaultSearchLimit=%d", gotLimit, DefaultSearchLimit)
+	}
+}
