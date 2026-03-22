@@ -135,10 +135,9 @@ func main() {
 	switch cfg.transport {
 	case "http":
 		listenAddr := cfg.addr + ":" + cfg.port
-		baseURL := "http://" + listenAddr
-		log.Info("MCP server listening via HTTP/SSE", "addr", listenAddr)
+		log.Info("MCP server listening via Streamable HTTP (MCP spec 2025-06-18)", "addr", listenAddr, "endpoint", "/mcp")
 		go func() {
-			serveErr <- srv.ServeSSE(ctx, listenAddr, baseURL)
+			serveErr <- srv.ServeStreamableHTTP(ctx, listenAddr)
 		}()
 	default:
 		log.Info("MCP server listening on stdio")

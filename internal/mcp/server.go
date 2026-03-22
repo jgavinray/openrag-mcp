@@ -5,7 +5,7 @@
 // supported:
 //
 //   - stdio: reads from stdin and writes to stdout (default, for local use)
-//   - HTTP/SSE: listens on a TCP address, suitable for network deployment
+//   - Streamable HTTP: listens on a TCP address per MCP spec 2025-06-18, suitable for network deployment
 //
 // # Quick start (stdio)
 //
@@ -152,22 +152,20 @@ func (s *Server) serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	return stdio.Listen(ctx, in, out)
 }
 
-// ServeSSE starts an HTTP/SSE MCP server on the given address (e.g.
-// "0.0.0.0:8080"). The baseURL must be the publicly reachable URL of the
-// server so that SSE clients can construct the message endpoint URL
-// (e.g. "http://192.168.1.10:8080"). It blocks until ctx is cancelled or an
-// unrecoverable error occurs.
-func (s *Server) ServeSSE(ctx context.Context, addr, baseURL string) error {
+// ServeStreamableHTTP starts a Streamable HTTP MCP server on the given address
+// (e.g. "0.0.0.0:8080") per MCP spec 2025-06-18. The single /mcp endpoint
+// accepts both POST (for client→server messages) and GET (for server-sent
+// events). It blocks until ctx is cancelled or an unrecoverable error occurs.
+func (s *Server) ServeStreamableHTTP(ctx context.Context, addr string) error {
 	mcpSrv := s.buildMCPServer()
-	sseSrv := mcpserver.NewSSEServer(mcpSrv,
-		mcpserver.WithBaseURL(baseURL),
-		mcpserver.WithKeepAlive(true),
+	streamSrv := mcpserver.NewStreamableHTTPServer(mcpSrv,
+		mcpserver.WithEndpointPath("/mcp"),
 	)
 
 	// Start the HTTP listener in a goroutine so we can watch ctx.
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- sseSrv.Start(addr)
+		errCh <- streamSrv.Start(addr)
 	}()
 
 	select {
@@ -176,6 +174,6 @@ func (s *Server) ServeSSE(ctx context.Context, addr, baseURL string) error {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		return sseSrv.Shutdown(shutdownCtx)
+		return streamSrv.Shutdown(shutdownCtx)
 	}
 }
